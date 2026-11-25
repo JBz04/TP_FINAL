@@ -1,0 +1,58 @@
+services:
+
+  # Étape 2 de la doc : créer la base et son utilisateur.
+  # Les variables le font au premier démarrage du conteneur.
+  db:
+    image: mysql:8.0
+    container_name: wp-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass_wp
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: motdepasse_wp
+    # Volume nommé : les données survivent au conteneur
+    volumes:
+      - db-data:/var/lib/mysql
+    # Aucun port publié : la base n'est joignable que du réseau interne
+    networks:
+      - wp-net
+    restart: unless-stopped
+    # Test de disponibilité réelle, exploité par depends_on.
+    # Le $$ échappe le $ pour le passer au shell du conteneur.
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Serveur web construit depuis le Dockerfile local
+  wordpress:
+    build: .
+    image: mon-wordpress:1.0
+    container_name: wp-web
+    # Port 80 du conteneur publié sur le 8081 de la VM
+    ports:
+      - "8081:80"
+    # Volume sur la racine web : wp-config.php généré par l'installeur,
+    # thèmes et médias survivent aux reconstructions
+    volumes:
+      - wp-files:/var/www/html
+    # Attente que MySQL soit vraiment prêt, pas seulement démarré
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - wp-net
+    restart: unless-stopped
+
+# Réseau privé : isole la pile et résout les services par leur nom
+networks:
+  wp-net:
+    driver: bridge
+
+# Volumes nommés, indépendants des conteneurs
+volumes:
+  db-data:
+  wp-files:
+
